@@ -13,11 +13,9 @@ Para configurar el entorno, copia .env.example a .env y completa los valores.
 
 from pathlib import Path
 from datetime import timedelta
-import pymysql
+import dj_database_url
 import os
 from decouple import config, Csv
-
-pymysql.install_as_MySQLdb()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -51,19 +49,10 @@ INSTALLED_APPS = [
 # BASE DE DATOS — credenciales desde entorno
 # ---------------------------------------------------------------------------
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': config('DB_NAME', default='donadb'),
-        'USER': config('DB_USER', default='django_user'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='3306'),
-        'OPTIONS': {
-            'sql_mode': 'traditional',
-        },
-        # Reutilización de conexiones: evita abrir una conexión nueva por request
-        'CONN_MAX_AGE': config('DB_CONN_MAX_AGE', default=60, cast=int),
-    }
+    'default': dj_database_url.config(
+        default=config('DATABASE_URL'),
+        conn_max_age=config('DB_CONN_MAX_AGE', default=60, cast=int),
+    )
 }
 
 # ---------------------------------------------------------------------------
@@ -72,6 +61,7 @@ DATABASES = {
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -213,3 +203,6 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
