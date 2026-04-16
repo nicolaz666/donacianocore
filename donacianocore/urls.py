@@ -25,4 +25,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),  # Aquí incluyes las rutas de tu app ventas
     # path('api/otra_app/', include('otra_app.urls')),  # Puedes incluir otras apps si las tienes
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+]
+
+# En producción (Render) el media viene desde Cloudinary.
+# Servimos MEDIA solo en desarrollo.
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
