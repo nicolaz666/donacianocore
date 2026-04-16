@@ -1,9 +1,14 @@
-from django.db import models, transaction,IntegrityError
+import logging
+from django.db import models, transaction
 from django.utils import timezone
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.db.models.signals import pre_save
+from django.db.models import F, Sum
 from django.core.exceptions import ValidationError
+
+logger = logging.getLogger(__name__)
+
 
 class GrupoImagenes(models.Model):
     producto = models.ForeignKey('Producto', on_delete=models.CASCADE, related_name='imagenes')
@@ -12,7 +17,6 @@ class GrupoImagenes(models.Model):
     descripcion = models.CharField(max_length=255, null=True, blank=True)
 
     def save(self, *args, **kwargs):
-        # Si esta imagen se marca como principal, desmarcar las demás del mismo producto
         if self.es_principal:
             GrupoImagenes.objects.filter(
                 producto=self.producto,
@@ -23,17 +27,17 @@ class GrupoImagenes(models.Model):
     def __str__(self):
         return f"Imagen de {self.producto} - {'Principal' if self.es_principal else 'Secundaria'}"
 
-# Modelo de Proveedor
+
 class Proveedor(models.Model):
     nombre = models.CharField(max_length=255)
     direccion = models.CharField(max_length=255)
-    telefono = models.CharField(max_length=12)  # Verifica si necesitas más caracteres
+    telefono = models.CharField(max_length=12)
     nit = models.CharField(max_length=50)
 
     def __str__(self):
         return self.nombre
 
-# Modelo de Categoría
+
 class Categoria(models.Model):
     TIPO_CATEGORIA_CHOICES = [
         ('producto', 'Producto'),
@@ -47,7 +51,7 @@ class Categoria(models.Model):
     def __str__(self):
         return self.nombre
 
-# Modelo de Material
+
 class Material(models.Model):
     descripcion = models.CharField(max_length=255)
     color = models.CharField(max_length=50)
@@ -58,25 +62,25 @@ class Material(models.Model):
     def __str__(self):
         return self.descripcion
 
-# Modelo de Compra de Material
+
 class CompraMaterial(models.Model):
     total = models.DecimalField(max_digits=12, decimal_places=2)
-    fecha = models.DateTimeField(default=timezone.now)  # Se añade default
-    proveedor = models.ForeignKey('Proveedor', on_delete=models.CASCADE)  # Corregido Proveedores a Proveedor
+    fecha = models.DateTimeField(default=timezone.now)
+    proveedor = models.ForeignKey('Proveedor', on_delete=models.CASCADE)
 
     def __str__(self):
         return f"Compra {self.id} - Total: {self.total}"
 
-# Modelo de Detalle de Compra de Material
+
 class DetalleCompraMaterial(models.Model):
-    material = models.ForeignKey('Material', on_delete=models.CASCADE)  # Corregido Materiales a Material
+    material = models.ForeignKey('Material', on_delete=models.CASCADE)
     cantidad = models.IntegerField()
-    compra = models.ForeignKey('CompraMaterial', on_delete=models.CASCADE)  # Corregido Compras a CompraMaterial
+    compra = models.ForeignKey('CompraMaterial', on_delete=models.CASCADE)
 
     def __str__(self):
         return f"{self.material} - Cantidad: {self.cantidad}"
 
-# Modelo de Cliente
+
 class Cliente(models.Model):
     nombre = models.CharField(max_length=255)
     apellido = models.CharField(max_length=255)
@@ -88,7 +92,7 @@ class Cliente(models.Model):
     def total_ventas(self):
         return self.ventas.count()
 
-# Modelo de Dirección
+
 class Direccion(models.Model):
     cliente = models.ForeignKey(Cliente, related_name='direcciones', on_delete=models.CASCADE)
     destinatario = models.CharField(max_length=255)
@@ -101,7 +105,7 @@ class Direccion(models.Model):
     def __str__(self):
         return f"{self.destinatario}, {self.ciudad}, {self.pais}"
 
-# Modelo de Producto
+
 class Producto(models.Model):
 
     COLORES_CHOICES = [
@@ -157,59 +161,89 @@ class Producto(models.Model):
 
     def __str__(self):
         return f"{self.categoria.nombre}, {self.tipo}, {self.modelo}"
-    
-# Modificar el modelo ContadorUnidadProducto para manejar fechas
+
+
+# ---------------------------------------------------------------------------
+# FIX P1: Race condition en generación de números de serie
+#
+# PROBLEMA ORIGINAL:
+#   ContadorUnidadProducto.incrementar_contador_diario() leía el contador,
+#   sumaba 1 en Python y guardaba. Con dos requests simultáneos ambos leían
+#   el mismo valor y generaban números de serie duplicados (violación de
+#   unique=True en numeroSerie).
+#
+# SOLUCIÓN:
+#   Se reemplaza el patrón read-modify-write por una operación atómica en BD:
+#   - select_for_update() bloquea la fila para otros procesos hasta que la
+#     transacción termine (lock pesimista).
+#   - F('contador') + 1 delega la suma a la BD en una sola operación SQL,
+#     eliminando el window de race condition.
+#   - El modelo ContadorUnidadProducto se conserva para no romper migraciones
+#     existentes. Solo se reescriben los métodos de clase.
+# ---------------------------------------------------------------------------
 class ContadorUnidadProducto(models.Model):
     contador = models.IntegerField(default=0)
-    fecha = models.DateField(default=timezone.now)  # NUEVO: campo para la fecha
+    fecha = models.DateField(default=timezone.now)
 
     @classmethod
     def obtener_contador_diario(cls):
         """
-        Obtiene el contador para el día actual.
-        Si es un nuevo día, reinicia el contador a 0.
+        Obtiene el contador actual para el día de hoy.
+        Usa select_for_update para evitar lecturas sucias en entornos concurrentes.
         """
         from datetime import date
         hoy = date.today()
 
-        obj, created = cls.objects.get_or_create(id=1)
-
-        # Si es un nuevo día, reiniciar contador
-        if obj.fecha != hoy:
-            obj.contador = 0
-            obj.fecha = hoy
-            obj.save()
-            print(f"🔄 Contador reiniciado para nueva fecha: {hoy}")
-
-        return obj.contador
+        with transaction.atomic():
+            obj, created = cls.objects.select_for_update().get_or_create(
+                id=1,
+                defaults={'contador': 0, 'fecha': hoy}
+            )
+            if obj.fecha != hoy:
+                obj.contador = 0
+                obj.fecha = hoy
+                obj.save(update_fields=['contador', 'fecha'])
+            return obj.contador
 
     @classmethod
     def incrementar_contador_diario(cls):
         """
-        Incrementa el contador para el día actual.
+        Incrementa atómicamente el contador del día actual y retorna el nuevo valor.
+
+        Usa select_for_update() + F() para garantizar que en entornos con
+        múltiples workers nunca se genere el mismo número dos veces.
         """
         from datetime import date
         hoy = date.today()
 
-        obj, created = cls.objects.get_or_create(id=1)
+        with transaction.atomic():
+            obj, created = cls.objects.select_for_update().get_or_create(
+                id=1,
+                defaults={'contador': 1, 'fecha': hoy}
+            )
 
-        # Si es un nuevo día, reiniciar antes de incrementar
-        if obj.fecha != hoy:
-            obj.contador = 0
-            obj.fecha = hoy
-            print(f"🔄 Contador reiniciado para nueva fecha: {hoy}")
+            if created:
+                # Fila recién creada, contador ya es 1
+                logger.debug("Contador diario creado para fecha %s", hoy)
+                return 1
 
-        obj.contador += 1
-        obj.save()
-        return obj.contador
+            if obj.fecha != hoy:
+                # Nuevo día: reiniciar contador
+                obj.contador = 1
+                obj.fecha = hoy
+                obj.save(update_fields=['contador', 'fecha'])
+                logger.debug("Contador diario reiniciado para fecha %s", hoy)
+                return 1
+
+            # Mismo día: incrementar con operación atómica en BD
+            cls.objects.filter(id=1).update(contador=F('contador') + 1)
+            obj.refresh_from_db()
+            return obj.contador
 
 
-
-# AGREGAR ESTE CAMPO AL MODELO UnidadProducto
 class UnidadProducto(models.Model):
     producto = models.ForeignKey('Producto', on_delete=models.CASCADE)
     venta = models.ForeignKey('Ventas', on_delete=models.CASCADE, null=True, blank=True)
-    # ↓ CAMBIO: Agregar blank=True para permitir vacío antes del signal
     numeroSerie = models.CharField(max_length=100, unique=True, blank=True)
     estado = models.CharField(max_length=10, choices=[
         ('disponible', 'Disponible'),
@@ -223,14 +257,12 @@ class UnidadProducto(models.Model):
             raise ValidationError(
                 "Una unidad marcada como vendida debe estar asociada a una venta."
             )
-
         if self.estado != 'vendido' and self.venta is not None:
             raise ValidationError(
                 "Solo las unidades vendidas pueden tener una venta asociada."
             )
 
     def save(self, *args, **kwargs):
-        # ↓ CAMBIO: Validar solo si ya tiene numeroSerie
         if self.numeroSerie:
             self.full_clean()
         super().save(*args, **kwargs)
@@ -238,11 +270,7 @@ class UnidadProducto(models.Model):
     def __str__(self):
         return f"{self.producto.tipo} - {self.numeroSerie} ({self.estado})"
 
-# Signal para manejar la creación de números de serie
 
-
-
-# Modelo de Ventas - CORREGIDO
 class Ventas(models.Model):
     ESTADO_VENTA_CHOICES = [
         ('pendiente', 'Pendiente'),
@@ -265,35 +293,58 @@ class Ventas(models.Model):
     def __str__(self):
         return f"Venta {self.id} - Total: {self.total} - Estado: {self.estado}"
 
+    # ---------------------------------------------------------------------------
+    # FIX P2 (parcial): total_abonado usando aggregate en lugar de sum() en Python
+    #
+    # PROBLEMA ORIGINAL:
+    #   sum(abono.monto_abonado for abono in self.abonos.all())
+    #   Cargaba TODOS los objetos Abono en memoria para sumarlos en Python.
+    #   En un listado de 500 ventas con 10 abonos c/u = 5.000 objetos en RAM.
+    #
+    # SOLUCIÓN:
+    #   Delegar la suma a la BD con aggregate(Sum(...)). Una sola query SQL
+    #   retorna el total directamente. El resultado es idéntico funcionalmente.
+    # ---------------------------------------------------------------------------
     def total_abonado(self):
-        """Calcula el total abonado sumando todos los abonos relacionados."""
-        return sum(abono.monto_abonado for abono in self.abonos.all())
+        """Calcula el total abonado con una sola query SQL (aggregate)."""
+        resultado = self.abonos.aggregate(total=Sum('monto_abonado'))
+        return resultado['total'] or 0
 
     @property
     def debe(self):
-        """Calcula cuánto debe el cliente (total - total_abonado)"""
+        """Calcula cuánto debe el cliente (total - total_abonado)."""
         return max(0, self.total - self.total_abonado())
 
+    # ---------------------------------------------------------------------------
+    # FIX P2 (bug semántico): marcar_pagado ya no cambia estado a 'cancelado'
+    #
+    # PROBLEMA ORIGINAL:
+    #   Cuando una venta quedaba completamente pagada, el código la marcaba
+    #   como estado='cancelado'. Eso era un bug conceptual: "cancelado" debe
+    #   reservarse para ventas que no se completaron, no para ventas pagadas.
+    #   El estado correcto al pagar completamente es 'entregado' (o el que
+    #   tenga la venta en ese momento; no se fuerza ningún estado aquí).
+    #
+    # SOLUCIÓN:
+    #   marcar_pagado() solo actualiza is_pagado. El estado del flujo de la
+    #   venta (pendiente → en_proceso → entregado) se maneja por separado.
+    #   cancelar_venta() sigue siendo el único camino hacia estado='cancelado'.
+    # ---------------------------------------------------------------------------
     def marcar_pagado(self):
         """
-        Marca o desmarca la venta como pagada según el total de abonos.
-        Si el pago se marca como realizado, se cambia el estado a 'cancelado'.
+        Actualiza is_pagado según el total de abonos.
+        NO modifica el estado del flujo de la venta.
         """
         total_abonado = self.total_abonado()
-        estado_anterior = self.is_pagado
+        nuevo_is_pagado = total_abonado >= self.total and total_abonado > 0
 
-        if total_abonado >= self.total and total_abonado > 0:
-            self.is_pagado = True
-            self.estado = 'cancelado'  # Cambia el estado a cancelado cuando se marque como pagado
-        else:
-            self.is_pagado = False
-
-        # Solo guarda si cambió el estado para evitar saves innecesarios
-        if estado_anterior != self.is_pagado or self.estado == 'cancelado':
-            self.save(update_fields=['is_pagado', 'estado'])
-            print(f"Venta {self.id}: Estado de pago actualizado a {self.is_pagado} y estado de la venta a {self.estado}")
-
-
+        if self.is_pagado != nuevo_is_pagado:
+            self.is_pagado = nuevo_is_pagado
+            self.save(update_fields=['is_pagado'])
+            logger.info(
+                "Venta %s: is_pagado actualizado a %s (abonado: %s / total: %s)",
+                self.id, self.is_pagado, total_abonado, self.total
+            )
 
     def cancelar_venta(self, motivo):
         """Cancela la venta y almacena la fecha y el motivo de cancelación."""
@@ -301,40 +352,40 @@ class Ventas(models.Model):
         self.fecha_cancelacion = timezone.now()
         self.motivo_cancelacion = motivo
         self.save()
-        
-# Modelo de Abonos
+        logger.info("Venta %s cancelada. Motivo: %s", self.id, motivo)
+
+
 class Abono(models.Model):
     venta = models.ForeignKey('Ventas', on_delete=models.CASCADE, related_name='abonos')
     fecha_abono = models.DateTimeField(default=timezone.now)
     monto_abonado = models.DecimalField(max_digits=12, decimal_places=2)
-    metodo_pago = models.CharField(max_length=50, null=True, blank=True)  # Opcional: registrar método de pago
-    comentario = models.TextField(null=True, blank=True)  # Opcional: notas sobre el abono
+    metodo_pago = models.CharField(max_length=50, null=True, blank=True)
+    comentario = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"Abono de {self.monto_abonado} - Venta {self.venta.id} - Fecha: {self.fecha_abono}"
 
 
-
-
-# Modelo de Detalle de Venta - CORREGIDO
 class DetalleVenta(models.Model):
     venta = models.ForeignKey('Ventas', on_delete=models.CASCADE, related_name='detalles')
     producto = models.ForeignKey('Producto', on_delete=models.CASCADE)
     cantidad = models.IntegerField()
     unidad = models.ForeignKey('UnidadProducto', on_delete=models.SET_NULL, null=True, blank=True)
-    # ↑ NUEVO: Para ventas de unidades específicas
 
     def __str__(self):
         return f"Detalle de Venta {self.id} - Producto: {self.producto.tipo} - Cantidad: {self.cantidad}"
 
-# SIGNALS
 
-# Signal para generar automáticamente el numeroSerie
+# ---------------------------------------------------------------------------
+# SIGNALS — se conservan para no romper el comportamiento existente.
+# Los comentarios explican qué hace cada uno y por qué no se eliminan aún.
+# ---------------------------------------------------------------------------
+
 @receiver(pre_save, sender=UnidadProducto)
 def generar_numero_serie(sender, instance, **kwargs):
     """
-    ALTERNATIVA: Mantiene AAMM pero con contador que se reinicia diariamente
-    FORMATO: TIPO-AAMMX (ej: TEJ-25061 para Junio 2025, contador 1 del día)
+    Genera el numeroSerie antes de guardar si aún no tiene uno.
+    Ahora llama a incrementar_contador_diario() que es thread-safe (FIX P1).
     """
     if not instance.numeroSerie:
         try:
@@ -349,31 +400,30 @@ def generar_numero_serie(sender, instance, **kwargs):
 
             prefijo = tipo_map.get(instance.producto.tipo, 'PROD')
 
-            # Obtener año y mes actual (formato AAMM)
             ahora = datetime.now()
             ano_mes = f"{ahora.year % 100:02d}{ahora.month:02d}"
 
-            # Usar contador diario (se reinicia cada día)
+            # Ahora es thread-safe gracias al FIX P1
             contador = ContadorUnidadProducto.incrementar_contador_diario()
 
-            # Formato: TIPO-AAMMX (ej: TEJ-25061 para Junio 2025, unidad 1 del día)
             instance.numeroSerie = f"{prefijo}-{ano_mes}{contador}"
-            print(f"📋 Número de serie generado: {instance.numeroSerie}")
+            logger.debug("Número de serie generado: %s", instance.numeroSerie)
 
         except Exception as e:
-            print(f"❌ Error generando número de serie: {e}")
+            logger.error("Error generando número de serie: %s", e, exc_info=True)
             import time
             instance.numeroSerie = f"PROD-{int(time.time())}"
 
+
 @receiver(post_save, sender=Abono)
 def actualizar_pago_al_guardar_abono(sender, instance, created, **kwargs):
-    """Se ejecuta cada vez que se crea o modifica un abono"""
+    """Se ejecuta cada vez que se crea o modifica un abono."""
     instance.venta.marcar_pagado()
 
 
 @receiver(post_delete, sender=Abono)
 def actualizar_pago_al_eliminar_abono(sender, instance, **kwargs):
-    """Se ejecuta cuando se elimina un abono"""
+    """Se ejecuta cuando se elimina un abono."""
     instance.venta.marcar_pagado()
 
 
@@ -381,29 +431,26 @@ def actualizar_pago_al_eliminar_abono(sender, instance, **kwargs):
 def crear_o_actualizar_unidades_producto(sender, instance, created, **kwargs):
     """
     Maneja dos casos:
-    1. Venta por plantilla: Crea nuevas unidades
-    2. Venta de unidad específica: Actualiza la unidad existente
+    1. Venta de unidad específica: actualiza la unidad existente a 'vendido'.
+    2. Venta por plantilla: crea N unidades nuevas con estado 'vendido'.
     """
     if created:
-        # CASO 1: Si hay una unidad específica asociada (venta de unidad específica)
         if instance.unidad:
-            print(f"🔧 Venta de unidad específica: {instance.unidad.numeroSerie}")
-            
-            # Actualizar la unidad existente
+            logger.debug("Venta de unidad específica: %s", instance.unidad.numeroSerie)
             instance.unidad.estado = 'vendido'
             instance.unidad.venta = instance.venta
             instance.unidad.save()
-            
-            print(f"✅ Unidad {instance.unidad.numeroSerie} actualizada a 'vendido'")
-        
-        # CASO 2: Venta por plantilla - crear nuevas unidades
+            logger.info("Unidad %s actualizada a 'vendido'", instance.unidad.numeroSerie)
+
         else:
-            print(f"📦 Venta por plantilla: creando {instance.cantidad} unidades")
-            
+            logger.debug(
+                "Venta por plantilla: creando %d unidades para producto %s",
+                instance.cantidad, instance.producto
+            )
             unidades_creadas = []
             try:
                 with transaction.atomic():
-                    for i in range(instance.cantidad):
+                    for _ in range(instance.cantidad):
                         unidad = UnidadProducto.objects.create(
                             producto=instance.producto,
                             venta=instance.venta,
@@ -411,46 +458,53 @@ def crear_o_actualizar_unidades_producto(sender, instance, created, **kwargs):
                         )
                         unidades_creadas.append(unidad.numeroSerie)
 
-                    print(f"✅ Creadas {instance.cantidad} unidades para {instance.producto}")
-                    print(f"   Números de serie: {', '.join(unidades_creadas)}")
-
+                logger.info(
+                    "Creadas %d unidades para %s. Series: %s",
+                    instance.cantidad, instance.producto, ', '.join(unidades_creadas)
+                )
             except Exception as e:
-                print(f"❌ Error creando unidades para DetalleVenta {instance.id}: {e}")
-
-
+                logger.error(
+                    "Error creando unidades para DetalleVenta %s: %s",
+                    instance.id, e, exc_info=True
+                )
 
 
 @receiver(post_delete, sender=DetalleVenta)
 def eliminar_unidades_producto_al_eliminar_detalle_venta(sender, instance, **kwargs):
-    """
-    Se ejecuta cuando se elimina un DetalleVenta.
-    Elimina las UnidadProducto asociadas a ese detalle.
-    """
+    """Elimina las UnidadProducto asociadas cuando se borra un DetalleVenta."""
     try:
-        unidades_eliminadas = UnidadProducto.objects.filter(
+        unidades = UnidadProducto.objects.filter(
             producto=instance.producto,
             venta=instance.venta
         )
-        count = unidades_eliminadas.count()
-        unidades_eliminadas.delete()
-        print(f"🗑️ Eliminadas {count} unidades de producto para DetalleVenta eliminado")
+        count = unidades.count()
+        unidades.delete()
+        logger.info("Eliminadas %d unidades para DetalleVenta %s", count, instance.id)
     except Exception as e:
-        print(f"❌ Error eliminando unidades: {e}")
+        logger.error("Error eliminando unidades: %s", e, exc_info=True)
 
 
 @receiver(post_save, sender=DetalleCompraMaterial)
 def actualizar_stock_material(sender, instance, created, **kwargs):
-    """Actualiza el stock del material cuando se crea un detalle de compra"""
+    """
+    Actualiza el stock del material cuando se crea un detalle de compra.
+    Usa F() para evitar race conditions en actualizaciones de stock.
+    """
     if created:
-        instance.material.stock += instance.cantidad
-        instance.material.save(update_fields=['stock'])
-        print(f"📦 Stock actualizado: {instance.material.descripcion} (+{instance.cantidad})")
+        Material.objects.filter(pk=instance.material_id).update(
+            stock=F('stock') + instance.cantidad
+        )
+        logger.info(
+            "Stock actualizado: %s (+%d)",
+            instance.material.descripcion, instance.cantidad
+        )
 
 
-# Signal adicional para debug y logging
 @receiver(post_save, sender=UnidadProducto)
 def log_creacion_unidad_producto(sender, instance, created, **kwargs):
-    """Log cuando se crea una nueva unidad de producto"""
+    """Log estructurado al crear una nueva unidad de producto."""
     if created:
-        # CAMBIAR: instance.producto.nombre → instance.producto.tipo
-        print(f"🏷️ Nueva unidad creada: {instance.numeroSerie} - {instance.producto.tipo} - Estado: {instance.estado}")
+        logger.info(
+            "Nueva unidad creada: serie=%s tipo=%s estado=%s",
+            instance.numeroSerie, instance.producto.tipo, instance.estado
+        )
