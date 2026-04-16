@@ -74,9 +74,16 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://localhost:5173,http://localhost:8080',
+    default='http://localhost:3000,http://localhost:5173,http://localhost:8080,https://donareact.vercel.app',
     cast=Csv()
 )
+
+# Opcional: permitir previews de Vercel (o múltiples subdominios) vía regex.
+# Ejemplo:
+# CORS_ALLOWED_ORIGIN_REGEXES=https://.*\\.vercel\\.app
+_cors_regexes = config('CORS_ALLOWED_ORIGIN_REGEXES', default='', cast=str)
+if _cors_regexes.strip():
+    CORS_ALLOWED_ORIGIN_REGEXES = [r.strip() for r in _cors_regexes.split(',') if r.strip()]
 
 # ---------------------------------------------------------------------------
 # JWT
