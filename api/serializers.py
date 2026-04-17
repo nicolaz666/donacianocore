@@ -158,8 +158,7 @@ class VentaSerializer(serializers.ModelSerializer):
         return venta
 
     def get_debe(self, obj):
-        total_abonado = sum(abono.monto_abonado for abono in obj.abonos.all())
-        return obj.total - total_abonado
+        return obj.debe
 
 
 

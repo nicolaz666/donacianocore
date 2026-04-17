@@ -61,7 +61,7 @@ class DetalleCompraMaterialViewSet(viewsets.ModelViewSet):
     serializer_class = DetalleCompraMaterialSerializer
 
 class ClienteViewSet(viewsets.ModelViewSet):
-    queryset = Cliente.objects.all()
+    queryset = Cliente.objects.prefetch_related('direcciones', 'ventas').all()
     serializer_class = ClienteSerializer
 
 class DireccionViewSet(viewsets.ModelViewSet):
@@ -70,11 +70,11 @@ class DireccionViewSet(viewsets.ModelViewSet):
 
 
 class ProductoViewSet(viewsets.ModelViewSet):
-    queryset = Producto.objects.all()
+    queryset = Producto.objects.select_related('categoria').prefetch_related('imagenes').all()
     serializer_class = ProductoSerializer
 
 class UnidadProductoViewSet(viewsets.ModelViewSet):
-    queryset = UnidadProducto.objects.all()
+    queryset = UnidadProducto.objects.select_related('producto__categoria').all()
     serializer_class = UnidadProductoSerializer
     
     # Permitir actualizaciones parciales con PATCH
@@ -97,7 +97,7 @@ class UnidadProductoViewSet(viewsets.ModelViewSet):
         return Response({'error': 'Estado no proporcionado'}, status=400)
 
 class VentaViewSet(viewsets.ModelViewSet):
-    queryset = Ventas.objects.all()
+    queryset = Ventas.objects.select_related('cliente').prefetch_related('abonos', 'detalles').all()
     serializer_class = VentaSerializer
 
 class AbonoViewSet(viewsets.ModelViewSet):
