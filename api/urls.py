@@ -1,7 +1,7 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenRefreshView
-from .views import RegisterView,GrupoImagenesViewSet, LoginView, LogoutView, UserProfileView, ProveedorViewSet, CategoriaViewSet, MaterialViewSet, CompraMaterialViewSet, DetalleCompraMaterialViewSet, ClienteViewSet, ProductoViewSet, VentaViewSet, AbonoViewSet, DetalleVentaViewSet, DireccionViewSet, UnidadProductoViewSet
+from .views import RegisterView, GrupoImagenesViewSet, LoginView, LogoutView, UserProfileView, ProveedorViewSet, CategoriaViewSet, MaterialViewSet, CompraMaterialViewSet, DetalleCompraMaterialViewSet, ClienteViewSet, ProductoViewSet, VentaViewSet, AbonoViewSet, DetalleVentaViewSet, DireccionViewSet, UnidadProductoViewSet, ping
 
 
 
@@ -21,6 +21,7 @@ router.register(r'detalles-ventas', DetalleVentaViewSet)
 router.register(r'grupo-imagenes', GrupoImagenesViewSet)
 
 urlpatterns = [
+    path('ping/', ping, name='ping'),
     # Rutas de autenticación
     path('auth/register/', RegisterView.as_view(), name='register'),
     path('auth/login/', LoginView.as_view(), name='login'),

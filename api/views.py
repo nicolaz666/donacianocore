@@ -1,5 +1,6 @@
 from django.shortcuts import render
 from rest_framework import viewsets
+from rest_framework.decorators import api_view, permission_classes
 from .models import Proveedor, Categoria, Material, CompraMaterial, DetalleCompraMaterial, Cliente, Producto, Ventas, Abono, DetalleVenta, Direccion, UnidadProducto
 from .serializers import ProveedorSerializer, GrupoImagenes, CategoriaSerializer, MaterialSerializer, CompraMaterialSerializer, DetalleCompraMaterialSerializer, ClienteSerializer, ProductoSerializer, VentaSerializer, AbonoSerializer, DetalleVentaSerializer, DireccionSerializer, UnidadProductoSerializer
 from rest_framework.decorators import action
@@ -11,6 +12,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from .serializers import UserSerializer, RegisterSerializer, LoginSerializer,GrupoImagenesSerializer
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def ping(request):
+    return Response({"status": "ok"})
+
 
 class GrupoImagenesViewSet(viewsets.ModelViewSet):
     queryset = GrupoImagenes.objects.all()
