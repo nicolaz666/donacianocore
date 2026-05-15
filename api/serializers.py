@@ -140,22 +140,34 @@ class VentaSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def create(self, validated_data):
+        from .services import VentaService
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
         cliente = validated_data.pop('cliente_id')
-        productos_data = validated_data.pop('productos', [])  # Extraer productos
-        
-        # Crear la venta
-        venta = Ventas.objects.create(cliente=cliente, **validated_data)
-        
-        # Crear los detalles de venta
-        for producto_data in productos_data:
-            DetalleVenta.objects.create(
-                venta=venta,
-                producto_id=producto_data.get('producto_id'),
-                cantidad=producto_data.get('cantidad'),
-                unidad_id=producto_data.get('unidad_id')  # Para unidades específicas
+        productos_data = validated_data.pop('productos', [])
+        fecha_entrega_estimada = validated_data.pop('fecha_entrega_estimada')
+        comentarios = validated_data.pop('comentarios', '')
+
+        detalles = []
+        for pd in productos_data:
+            detalle = {
+                'producto': Producto.objects.get(id=pd['producto_id']),
+                'cantidad': pd['cantidad'],
+            }
+            if pd.get('unidad_id'):
+                detalle['unidad'] = UnidadProducto.objects.get(id=pd['unidad_id'])
+            detalles.append(detalle)
+
+        try:
+            return VentaService.crear_venta(
+                cliente=cliente,
+                fecha_entrega_estimada=fecha_entrega_estimada,
+                detalles=detalles,
+                comentarios=comentarios,
             )
-        
-        return venta
+        except DjangoValidationError as exc:
+            raise DRFValidationError(detail=exc.messages)
 
     def get_debe(self, obj):
         return obj.debe
