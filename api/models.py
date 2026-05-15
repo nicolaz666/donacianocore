@@ -106,23 +106,14 @@ class Direccion(models.Model):
         return f"{self.destinatario}, {self.ciudad}, {self.pais}"
 
 
-class Producto(models.Model):
+class Color(models.Model):
+    nombre = models.CharField(max_length=100, unique=True)
 
-    COLORES_CHOICES = [
-        ('Naranja', 'Naranja'),
-        ('Negro', 'Negro'),
-        ('Roble', 'Roble'),
-        ('Crudo', 'Crudo'),
-        ('Azul Celeste', 'Azul Celeste'),
-        ('Azul Rey', 'Azul Rey'),
-        ('Amarillo', 'Amarillo'),
-        ('Rojo', 'Rojo'),
-        ('Rosado', 'Rosado'),
-        ('Verde Claro', 'Verde Claro'),
-        ('Verde Militar', 'Verde Militar'),
-        ('Crudo Amarillo', 'Crudo Amarillo'),
-        ('Blanco Natural', 'Blanco Natural'),
-    ]
+    def __str__(self):
+        return self.nombre
+
+
+class Producto(models.Model):
 
     tipo = models.CharField(max_length=255, choices=[
         ('Tejido', 'Tejido'),
@@ -139,21 +130,13 @@ class Producto(models.Model):
 
     precio = models.DecimalField(max_digits=12, decimal_places=2)
 
-    colorPrincipal = models.CharField(max_length=255, choices=[
-        ('Negro', 'Negro'),
-        ('Roble', 'Roble'),
-        ('Crudo', 'Crudo'),
-        ('Chocolate', 'Chocolate'),
-        ('Envejecido', 'Envejecido'),
-    ])
-
+    colorPrincipal = models.CharField(max_length=255)
     colorTejido = models.CharField(max_length=50)
-
-    colorCordon1 = models.CharField(max_length=255, choices=COLORES_CHOICES, blank=True, null=True)
-    colorCordon2 = models.CharField(max_length=255, choices=COLORES_CHOICES, blank=True, null=True)
-    colorSogaRienda = models.CharField(max_length=255, choices=COLORES_CHOICES, blank=True, null=True)
-    colorManzanos = models.CharField(max_length=255, choices=COLORES_CHOICES, blank=True, null=True)
-    colorCoronas = models.CharField(max_length=255, choices=COLORES_CHOICES, blank=True, null=True)
+    colorCordon1 = models.CharField(max_length=255, blank=True, null=True)
+    colorCordon2 = models.CharField(max_length=255, blank=True, null=True)
+    colorSogaRienda = models.CharField(max_length=255, blank=True, null=True)
+    colorManzanos = models.CharField(max_length=255, blank=True, null=True)
+    colorCoronas = models.CharField(max_length=255, blank=True, null=True)
 
     observaciones = models.TextField(blank=True, null=True)
 

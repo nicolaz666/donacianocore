@@ -1,7 +1,7 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenRefreshView
-from .views import RegisterView, GrupoImagenesViewSet, LoginView, LogoutView, UserProfileView, ProveedorViewSet, CategoriaViewSet, MaterialViewSet, CompraMaterialViewSet, DetalleCompraMaterialViewSet, ClienteViewSet, ProductoViewSet, VentaViewSet, AbonoViewSet, DetalleVentaViewSet, DireccionViewSet, UnidadProductoViewSet, ping
+from .views import RegisterView, GrupoImagenesViewSet, LoginView, LogoutView, UserProfileView, ProveedorViewSet, CategoriaViewSet, MaterialViewSet, CompraMaterialViewSet, DetalleCompraMaterialViewSet, ClienteViewSet, ProductoViewSet, VentaViewSet, AbonoViewSet, DetalleVentaViewSet, DireccionViewSet, UnidadProductoViewSet, ColorViewSet, ping
 
 
 
@@ -19,6 +19,7 @@ router.register(r'ventas', VentaViewSet)
 router.register(r'abonos', AbonoViewSet)
 router.register(r'detalles-ventas', DetalleVentaViewSet)
 router.register(r'grupo-imagenes', GrupoImagenesViewSet)
+router.register(r'colores', ColorViewSet)
 
 urlpatterns = [
     path('ping/', ping, name='ping'),

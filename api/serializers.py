@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
-from .models import Proveedor, GrupoImagenes, Categoria, Material, CompraMaterial, DetalleCompraMaterial, Cliente, Producto, Ventas, Abono, DetalleVenta, Direccion, UnidadProducto
+from .models import Proveedor, GrupoImagenes, Categoria, Material, CompraMaterial, DetalleCompraMaterial, Cliente, Producto, Ventas, Abono, DetalleVenta, Direccion, UnidadProducto, Color
 
 class GrupoImagenesSerializer(serializers.ModelSerializer):
     class Meta:
@@ -233,6 +233,12 @@ class RegisterSerializer(serializers.ModelSerializer):
             last_name=validated_data.get('last_name', '')
         )
         return user
+
+class ColorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Color
+        fields = ['id', 'nombre']
+
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()

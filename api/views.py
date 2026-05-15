@@ -1,8 +1,8 @@
 from django.shortcuts import render
 from rest_framework import viewsets
 from rest_framework.decorators import api_view, permission_classes
-from .models import Proveedor, Categoria, Material, CompraMaterial, DetalleCompraMaterial, Cliente, Producto, Ventas, Abono, DetalleVenta, Direccion, UnidadProducto
-from .serializers import ProveedorSerializer, GrupoImagenes, CategoriaSerializer, MaterialSerializer, CompraMaterialSerializer, DetalleCompraMaterialSerializer, ClienteSerializer, ProductoSerializer, VentaSerializer, AbonoSerializer, DetalleVentaSerializer, DireccionSerializer, UnidadProductoSerializer
+from .models import Proveedor, Categoria, Material, CompraMaterial, DetalleCompraMaterial, Cliente, Producto, Ventas, Abono, DetalleVenta, Direccion, UnidadProducto, Color
+from .serializers import ProveedorSerializer, GrupoImagenes, CategoriaSerializer, MaterialSerializer, CompraMaterialSerializer, DetalleCompraMaterialSerializer, ClienteSerializer, ProductoSerializer, VentaSerializer, AbonoSerializer, DetalleVentaSerializer, DireccionSerializer, UnidadProductoSerializer, ColorSerializer
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -108,6 +108,12 @@ class DetalleVentaViewSet(viewsets.ModelViewSet):
     queryset = DetalleVenta.objects.all()
     serializer_class = DetalleVentaSerializer
     
+
+class ColorViewSet(viewsets.ModelViewSet):
+    queryset = Color.objects.all().order_by('nombre')
+    serializer_class = ColorSerializer
+    http_method_names = ['get', 'post', 'head', 'options']
+
 
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
